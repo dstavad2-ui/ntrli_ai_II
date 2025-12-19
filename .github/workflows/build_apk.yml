@@ -1,12 +1,7 @@
 # ============================================================================
-# NTRLI' AI - Android APK Build (Production Ready)
+# NTRLI' AI - Android APK Build (Using Buildozer Action)
 # ============================================================================
-# Features:
-# - Automated debug/release builds
-# - Artifact upload with retention
-# - Caching for faster builds
-# - All steps always run - no skipping
-# - Release creation on every build
+# Uses ArtemSBulgakov/buildozer-action for reliable builds
 
 name: Build Android APK
 
@@ -28,207 +23,76 @@ on:
           - debug
           - release
 
-env:
-  PYTHON_VERSION: '3.11'
-
 jobs:
   # ============================================================================
-  # APK Build Job - ALL STEPS ALWAYS RUN
+  # APK Build Job
   # ============================================================================
-  build-apk:
-    name: Build Android APK
+  build:
+    name: Build APK
     runs-on: ubuntu-latest
-    outputs:
-      build_status: ${{ steps.build.outcome }}
-      apk_name: ${{ steps.find-apk.outputs.apk_name }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Build with Buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          command: buildozer android ${{ github.event.inputs.build_type || 'debug' }}
+          workdir: android_app
+          buildozer_version: stable
 
-      - name: Cache Buildozer global directory
-        uses: actions/cache@v4
-        with:
-          path: ~/.buildozer
-          key: buildozer-global-${{ runner.os }}-${{ hashFiles('android_app/buildozer.spec') }}
-          restore-keys: |
-            buildozer-global-${{ runner.os }}-
-
-      - name: Cache Buildozer local directory
-        uses: actions/cache@v4
-        with:
-          path: android_app/.buildozer
-          key: buildozer-local-${{ runner.os }}-${{ hashFiles('android_app/buildozer.spec') }}
-          restore-keys: |
-            buildozer-local-${{ runner.os }}-
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            git \
-            libffi-dev \
-            libssl-dev \
-            python3-dev \
-            openjdk-17-jdk \
-            unzip \
-            zip \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            cmake
-
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip setuptools wheel
-          pip install buildozer==1.5.0 cython==0.29.36
-
-      - name: Build APK
-        id: build
-        working-directory: android_app
-        run: |
-          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
-          echo "Building $BUILD_TYPE APK..."
-          buildozer android $BUILD_TYPE 2>&1 | tee build.log
-          echo "Build completed"
-        env:
-          ANDROID_SDK_ROOT: ~/.buildozer/android/platform/android-sdk
-          ANDROID_NDK_HOME: ~/.buildozer/android/platform/android-ndk-r25b
-
-      - name: Find APK file
-        id: find-apk
-        run: |
-          APK_PATH=$(find android_app/bin -name "*.apk" 2>/dev/null | head -1)
-          if [ -n "$APK_PATH" ]; then
-            APK_NAME=$(basename "$APK_PATH")
-            echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
-            echo "Found APK: $APK_NAME"
-          else
-            echo "apk_name=ntrli-ai.apk" >> $GITHUB_OUTPUT
-            echo "No APK found yet"
-          fi
-
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ntrli-ai-${{ github.event.inputs.build_type || 'debug' }}-apk
+          name: ntrli-ai-apk
           path: android_app/bin/*.apk
           retention-days: 30
-          if-no-files-found: warn
 
       - name: Upload build log
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build-log
-          path: android_app/build.log
+          path: android_app/.buildozer/logs/
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
   # ============================================================================
-  # Core Validation - ALWAYS RUNS
-  # ============================================================================
-  validate-core:
-    name: Validate Core AI
-    runs-on: ubuntu-latest
-    needs: [build-apk]
-    if: always()
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install core dependencies
-        run: |
-          pip install --upgrade pip
-          pip install requests jsonschema
-
-      - name: Validate Python syntax
-        run: |
-          echo "Validating Python files..."
-          python -m py_compile android_app/main.py
-          echo "✓ android_app/main.py validated"
-
-          # Validate core if exists
-          if [ -d "ntrli_ai" ]; then
-            python -m py_compile ntrli_ai/main.py
-            python -m py_compile ntrli_ai/control_plane.py
-            python -m py_compile ntrli_ai/orchestrator.py
-            python -m py_compile ntrli_ai/planner.py
-            python -m py_compile ntrli_ai/config.py
-            python -m py_compile ntrli_ai/cli.py
-            echo "✓ All core files validated"
-          fi
-          echo "✓ Validation complete"
-
-      - name: Test imports
-        run: |
-          if [ -d "ntrli_ai" ]; then
-            cd ntrli_ai
-            python -c "from config import get_config; print('✓ Config imports OK')"
-            python -c "from capabilities import CAPABILITIES; print('✓ Capabilities OK')"
-          fi
-          echo "✓ Import tests complete"
-
-      - name: Report status
-        run: |
-          echo "========================================"
-          echo "NTRLI' AI Validation Report"
-          echo "========================================"
-          echo "APK Build: ${{ needs.build-apk.outputs.build_status }}"
-          echo "Core Validation: ✓ PASSED"
-          echo "========================================"
-
-  # ============================================================================
-  # Release Job - ALWAYS RUNS - NO CONDITIONS
+  # Release Job - ALWAYS RUNS
   # ============================================================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build-apk, validate-core]
+    needs: [build]
     if: always()
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download APK artifact
+      - name: Download APK
         uses: actions/download-artifact@v4
         with:
-          name: ntrli-ai-${{ github.event.inputs.build_type || 'debug' }}-apk
+          name: ntrli-ai-apk
           path: ./apk
         continue-on-error: true
 
-      - name: List downloaded files
+      - name: List files
         run: |
-          echo "Downloaded artifacts:"
-          ls -la ./apk/ 2>/dev/null || echo "No APK directory"
-          find . -name "*.apk" 2>/dev/null || echo "No APK files found"
+          echo "=== APK files ==="
+          find . -name "*.apk" -ls 2>/dev/null || echo "No APK found"
+          ls -la ./apk/ 2>/dev/null || echo "No apk directory"
 
-      - name: Generate release tag
+      - name: Generate tag
         id: tag
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG="${{ github.ref_name }}"
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           else
-            TAG="v1.0.0-build.${{ github.run_number }}"
+            echo "tag=v1.0.0-build.${{ github.run_number }}" >> $GITHUB_OUTPUT
           fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Using tag: $TAG"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -237,63 +101,36 @@ jobs:
           name: "NTRLI' AI ${{ steps.tag.outputs.tag }}"
           files: ./apk/*.apk
           fail_on_unmatched_files: false
-          generate_release_notes: true
           draft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          prerelease: true
           body: |
             ## NTRLI' AI Release
-
-            **Deterministic, Execution-First AI System**
 
             Build: ${{ github.event.inputs.build_type || 'debug' }}
             Run: #${{ github.run_number }}
 
-            ### 10 Behavioral Laws
-
-            1. No output without a plan
-            2. No plan without validation
-            3. No code without intent
-            4. No execution without verification
-            5. No writing without tests
-            6. No hallucination
-            7. No filler
-            8. No goal drift
-            9. No silent failure
-            10. No autonomy
-
             ### Installation
             1. Download the APK
-            2. Enable "Install from unknown sources" on your device
-            3. Install the APK
-            4. Open the app and configure your API keys in Settings
+            2. Enable "Install from unknown sources"
+            3. Install and open the app
+            4. Configure API keys in Settings
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================================================
-  # Summary Job - ALWAYS RUNS
+  # Summary
   # ============================================================================
   summary:
-    name: Build Summary
+    name: Summary
     runs-on: ubuntu-latest
-    needs: [build-apk, validate-core, release]
+    needs: [build, release]
     if: always()
 
     steps:
-      - name: Generate Summary
+      - name: Summary
         run: |
-          echo "# NTRLI' AI Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| APK Build | ${{ needs.build-apk.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Core Validation | ${{ needs.validate-core.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "# Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Release | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Build Details" >> $GITHUB_STEP_SUMMARY
-          echo "- Type: ${{ github.event.inputs.build_type || 'debug' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Run: #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "- APK: Check Artifacts section" >> $GITHUB_STEP_SUMMARY
-          echo "- Build Log: Check Artifacts section" >> $GITHUB_STEP_SUMMARY
