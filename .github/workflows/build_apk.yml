@@ -13,15 +13,10 @@ name: Build Android APK
 on:
   push:
     branches: [main, master, 'claude/*']
-    paths:
-      - 'android_app/**'
-      - '.github/workflows/build_apk.yml'
     tags:
       - 'v*'
   pull_request:
     branches: [main, master]
-    paths:
-      - 'android_app/**'
   workflow_dispatch:
     inputs:
       build_type:
