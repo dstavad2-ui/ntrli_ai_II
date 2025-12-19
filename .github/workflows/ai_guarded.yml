@@ -1,6 +1,19 @@
-name: NTRLI AI Guarded Execution
+# ============================================================================
+# NTRLI' AI - Self-Running Execution System
+# ============================================================================
+# This workflow enables NTRLI' AI to run autonomously on GitHub.
+#
+# Features:
+# - Manual trigger with instruction input
+# - Scheduled self-maintenance (daily)
+# - Self-healing with fallback providers
+# - Automatic retry on failure
+# - Independent of APK build status
+
+name: NTRLI AI Execution
 
 on:
+  # Manual trigger
   workflow_dispatch:
     inputs:
       instruction:
@@ -8,39 +21,87 @@ on:
         required: true
         type: string
       strategy:
-        description: 'Router strategy'
+        description: 'Provider strategy'
         required: false
         type: choice
         options:
+          - fallback
           - fastest
           - cheapest
           - smartest
-          - consensus
-          - fallback
         default: fallback
+      auto_commit:
+        description: 'Auto-commit results'
+        required: false
+        type: boolean
+        default: false
+
+  # Scheduled self-maintenance (runs daily at midnight UTC)
+  schedule:
+    - cron: '0 0 * * *'
+
+  # Trigger on issues labeled 'ai-task'
+  issues:
+    types: [labeled]
+
+env:
+  PYTHON_VERSION: '3.11'
 
 jobs:
+  # ============================================================================
+  # Main Execution Job
+  # ============================================================================
   execute:
+    name: Execute NTRLI AI
     runs-on: ubuntu-latest
+
+    # Only run on manual trigger, schedule, or ai-task label
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'issues' && github.event.label.name == 'ai-task')
+
     permissions:
       contents: write
+      issues: write
       pull-requests: write
+
+    outputs:
+      success: ${{ steps.execute.outcome == 'success' }}
+      result: ${{ steps.execute.outputs.result }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests jsonschema pyyaml
+
+      - name: Determine instruction
+        id: instruction
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "instruction=${{ github.event.inputs.instruction }}" >> $GITHUB_OUTPUT
+            echo "strategy=${{ github.event.inputs.strategy }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "instruction=Run daily self-maintenance: validate system health, clean cache if needed" >> $GITHUB_OUTPUT
+            echo "strategy=fallback" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ]; then
+            BODY=$(echo "${{ github.event.issue.body }}" | head -c 500)
+            echo "instruction=${{ github.event.issue.title }}: $BODY" >> $GITHUB_OUTPUT
+            echo "strategy=fallback" >> $GITHUB_OUTPUT
+          fi
 
       - name: Execute NTRLI AI
+        id: execute
+        working-directory: ntrli_ai
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -48,21 +109,117 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
-          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ROUTER_STRATEGY: ${{ inputs.strategy }}
-        working-directory: ntrli_ai
+          ROUTER_STRATEGY: ${{ steps.instruction.outputs.strategy }}
         run: |
-          python main.py "${{ inputs.instruction }}"
+          set +e  # Don't exit on error
 
-      - name: Commit results
-        if: success()
+          INSTRUCTION="${{ steps.instruction.outputs.instruction }}"
+          echo "Executing: $INSTRUCTION"
+          echo "Strategy: $ROUTER_STRATEGY"
+
+          # Try execution with retry
+          MAX_RETRIES=2
+          RETRY=0
+          SUCCESS=false
+
+          while [ $RETRY -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
+            RETRY=$((RETRY + 1))
+            echo "Attempt $RETRY of $MAX_RETRIES..."
+
+            RESULT=$(python main.py "$INSTRUCTION" 2>&1) || true
+
+            if echo "$RESULT" | grep -q '"error"'; then
+              echo "Attempt $RETRY failed"
+              if [ $RETRY -lt $MAX_RETRIES ]; then
+                echo "Retrying in 5 seconds..."
+                sleep 5
+              fi
+            else
+              SUCCESS=true
+              echo "Execution successful"
+            fi
+          done
+
+          # Output result (truncate to avoid GitHub limits)
+          RESULT_TRUNCATED=$(echo "$RESULT" | head -c 60000)
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESULT_TRUNCATED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          if [ "$SUCCESS" = "true" ]; then
+            echo "✓ Execution completed successfully"
+            exit 0
+          else
+            echo "✗ Execution failed after $MAX_RETRIES attempts"
+            exit 1
+          fi
+
+      - name: Commit results (if enabled)
+        if: |
+          github.event.inputs.auto_commit == 'true' &&
+          steps.execute.outcome == 'success'
         run: |
           git config user.name "NTRLI AI"
           git config user.email "ntrli-ai@users.noreply.github.com"
           git add -A
-          git diff --staged --quiet || git commit -m "NTRLI AI [${{ inputs.strategy }}]: ${{ inputs.instruction }}"
-          git push
+          if ! git diff --staged --quiet; then
+            git commit -m "NTRLI AI: ${{ steps.instruction.outputs.instruction }}"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Comment on issue (if triggered by issue)
+        if: |
+          github.event_name == 'issues' &&
+          steps.execute.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = `${{ steps.execute.outputs.result }}`;
+            const truncated = result.substring(0, 60000);
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## NTRLI' AI Result\n\n\`\`\`json\n${truncated}\n\`\`\`\n\n---\n*Executed automatically by NTRLI' AI*`
+            });
+
+      - name: Create execution report
+        if: always()
+        run: |
+          echo "# NTRLI' AI Execution Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Instruction:** ${{ steps.instruction.outputs.instruction }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Strategy:** ${{ steps.instruction.outputs.strategy }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.execute.outcome == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Self-Healing Job (runs if main execution fails)
+  # ============================================================================
+  self-heal:
+    name: Self-Healing Check
+    runs-on: ubuntu-latest
+    needs: [execute]
+    if: failure()
+
+    steps:
+      - name: Analyze failure
+        run: |
+          echo "# Self-Healing Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The main execution failed. Possible causes:" >> $GITHUB_STEP_SUMMARY
+          echo "- No API keys configured (check repository secrets)" >> $GITHUB_STEP_SUMMARY
+          echo "- All providers are unavailable" >> $GITHUB_STEP_SUMMARY
+          echo "- Invalid instruction format" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Recovery Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check that at least one API key is set in repository secrets" >> $GITHUB_STEP_SUMMARY
+          echo "2. Verify the instruction is clear and actionable" >> $GITHUB_STEP_SUMMARY
+          echo "3. Try with a different strategy (fastest, cheapest, smartest)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The core AI system remains operational. APK build is independent." >> $GITHUB_STEP_SUMMARY
