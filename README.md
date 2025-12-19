@@ -1,203 +1,117 @@
-# NTRLI' AI
+# NTRLI' AI Core
 
-**Deterministic, Execution-First Artificial Intelligence System**
+**Deterministic, Execution-First AI Engine**
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build APK](https://img.shields.io/badge/build-APK-green.svg)](#android-app)
+```
+┌─────────────────────────────────────────────────────────┐
+│                    NTRLI' AI Core                       │
+│                                                         │
+│  Execution Engine │ Planning │ Validation │ Autonomy   │
+│                                                         │
+│  "No guessing. No hallucination. No goal drift."        │
+└─────────────────────────────────────────────────────────┘
+```
 
-## Overview
+## Repository Structure
 
-NTRLI' AI is a command-driven execution engine that performs real work—planning, research, coding, validation, and GitHub administration—under strict mechanical constraints.
+This repository uses a **two-branch architecture**:
 
-**Key Principles:**
-- No output without a plan
-- No execution without verification
-- No hallucination, no filler, no goal drift
-- No silent failure, no autonomy
+| Branch | Contents | Purpose |
+|--------|----------|---------|
+| `main` | NTRLI' AI Core | Engine: execution, planning, validation, autonomy rules, GitHub runner |
+| `ntrli-app` | Application | UI, Android app, product logic - depends on core as submodule |
 
-See the [Whitepaper](WHITEPAPER.md) for complete documentation.
+**Why?** App can't break core - they're isolated.
+
+## Core Components
+
+```
+ntrli_ai/
+├── control_plane.py    # Single command gate (only EXECUTE allowed)
+├── orchestrator.py     # Execution core
+├── planner.py          # Plan-first enforcement with JSON schema
+├── step_executor.py    # Validated step execution
+├── failure_recovery.py # Bounded retry, no silent failure
+├── capabilities.py     # Self-knowledge registry
+├── knowledge_cache.py  # Offline resilience
+├── config.py           # Configuration system
+├── cli.py              # CLI interface
+├── providers/          # 10 LLM adapters (Groq, Claude, OpenAI, etc.)
+├── tools/              # Execution tools (research, code, tests)
+├── github/             # GitHub administration
+└── notebook/           # Persistent knowledge store
+```
+
+## 10 Behavioral Laws
+
+These are not guidelines. They are **structural facts** enforced in code:
+
+1. **No output without a plan** - `planner.py` validates JSON schema
+2. **No plan without validation** - `jsonschema.validate()` required
+3. **No code without intent** - Plan step must specify purpose
+4. **No execution without verification** - Pre-execution checks
+5. **No writing without tests** - Code tools include test validation
+6. **No hallucination** - LLM outputs are validated, not trusted
+7. **No filler** - Empty responses rejected
+8. **No goal drift** - Original instruction preserved
+9. **No silent failure** - All errors surface with context
+10. **No autonomy** - Only EXECUTE command allowed
 
 ## Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/ntrli_ai_II.git
-cd ntrli_ai_II
-
-# Install dependencies
+# Install
 pip install -r requirements.txt
 
-# Initialize configuration
+# Configure
 cd ntrli_ai
 python cli.py config init
 
-# Set at least one API key
-export OPENAI_API_KEY=sk-...
-# or
+# Set API key
 export GROQ_API_KEY=gsk_...
 
-# Run NTRLI' AI
+# Run
 python main.py "Research Python best practices"
 ```
 
 ## Configuration
 
-NTRLI' AI uses a simple, Claude Code-style configuration system.
-
-### Configuration Commands
-
 ```bash
-# Show current configuration
-python cli.py config
-
-# Get a specific setting
-python cli.py config get router.strategy
-
-# Set a value
-python cli.py config set router.strategy fastest
-
-# Reset to defaults
-python cli.py config reset
-
-# Initialize config files
-python cli.py config init
+python cli.py config              # Show all
+python cli.py config get key      # Get value
+python cli.py config set key val  # Set value
+python cli.py providers           # List providers
+python cli.py providers enable X  # Enable provider
 ```
 
-### Provider Management
+## Providers
 
-```bash
-# List all providers
-python cli.py providers
+| Provider | Speed | Accuracy | Cost |
+|----------|-------|----------|------|
+| Groq | 276 tok/s | Good | $0.59/1M |
+| Claude | 45 tok/s | 93.7% | $3-15/1M |
+| OpenAI | 60 tok/s | Good | $5-15/1M |
+| DeepSeek | 50 tok/s | Good | $0.14/1M |
 
-# Enable a provider
-python cli.py providers enable groq
+## GitHub Self-Execution
 
-# Disable a provider
-python cli.py providers disable replicate
+The core runs autonomously via GitHub Actions:
 
-# Set provider model
-python cli.py providers model openai gpt-4o
+```yaml
+# .github/workflows/ai_guarded.yml
+# Triggers: manual, scheduled, issue-labeled
 ```
 
-### Configuration Files
+## For Applications
 
-Settings are loaded from (in order):
-1. Default values
-2. User config: `~/.ntrli_ai/settings.json`
-3. Project config: `.ntrli_ai.json` (in project root)
-4. Environment variables
+**Use the `ntrli-app` branch** for:
+- Android app
+- Web UI
+- CLI tools
+- Any product logic
 
-Copy `settings.json.example` to customize:
-```bash
-cp settings.json.example ~/.ntrli_ai/settings.json
-```
+The app branch depends on core as a submodule.
 
-### Environment Variables
+---
 
-| Variable | Description |
-|----------|-------------|
-| `ROUTER_STRATEGY` | Router strategy override |
-| `NTRLI_VERBOSE` | Enable verbose output |
-| `NTRLI_JSON_OUTPUT` | Output in JSON format |
-| `NTRLI_SANDBOX_TIMEOUT` | Execution timeout (seconds) |
-
-## Supported Providers
-
-| Provider | Best For | Pricing | Priority |
-|----------|----------|---------|----------|
-| Groq | Speed (276 tok/sec) | $0.59/1M tokens | 0 (fastest) |
-| Claude | Coding (93.7% accuracy) | $3-$15/1M tokens | 1 |
-| OpenAI | General purpose | $5-$15/1M tokens | 2 |
-| Gemini | Multimodal, cheapest | $1.25-$7/1M tokens | 3 |
-| Mistral | European compliance | $2-$8/1M tokens | 4 |
-| Together | Cost optimization | $0.20-$0.80/1M tokens | 5 |
-| DeepSeek | Ultra low cost | $0.14/1M tokens | 6 |
-
-## Android App
-
-NTRLI' AI includes a full Android application built with Kivy.
-
-### Automated APK Build
-
-APKs are automatically built via GitHub Actions:
-
-1. Go to **Actions** → **Build Android APK**
-2. Click **Run workflow**
-3. Select build type (debug/release)
-4. Download APK from artifacts
-
-### Manual Build
-
-```bash
-# Install buildozer
-pip install buildozer cython
-
-# Build debug APK
-cd android_app
-buildozer android debug
-
-# APK will be in android_app/bin/
-```
-
-### App Features
-
-- Clean, modern UI for instruction input
-- Provider selection and configuration
-- Real-time execution output
-- Settings management
-- Works offline with cached knowledge
-
-## Project Structure
-
-```
-ntrli_ai_II/
-├── ntrli_ai/               # Core AI system
-│   ├── main.py             # Entry point
-│   ├── cli.py              # CLI interface
-│   ├── config.py           # Configuration system
-│   ├── control_plane.py    # Single command gate
-│   ├── orchestrator.py     # Execution core
-│   ├── planner.py          # Plan-first enforcement
-│   ├── providers/          # LLM provider adapters
-│   └── tools/              # Execution tools
-├── android_app/            # Android application
-│   ├── main.py             # Kivy app
-│   └── buildozer.spec      # Build configuration
-├── .github/workflows/
-│   ├── ai_guarded.yml      # AI execution workflow
-│   └── build_apk.yml       # APK build workflow
-├── WHITEPAPER.md           # Full specification
-├── settings.json.example   # Configuration template
-└── requirements.txt        # Python dependencies
-```
-
-## GitHub Actions
-
-### AI Execution
-
-Trigger NTRLI' AI via GitHub Actions:
-
-1. Go to Actions → **NTRLI AI Guarded Execution**
-2. Click **Run workflow**
-3. Enter your instruction
-4. Select router strategy
-
-### APK Build
-
-Build Android APK automatically:
-
-1. Go to Actions → **Build Android APK**
-2. Click **Run workflow**
-3. Select debug or release
-4. Download from artifacts
-
-## Documentation
-
-- [Whitepaper](WHITEPAPER.md) - Complete specification
-- [settings.json.example](settings.json.example) - Configuration template
-- [.env.example](.env.example) - Environment variables
-
-## License
-
-MIT License - See LICENSE for details.
+See [WHITEPAPER.md](WHITEPAPER.md) for complete specification.
