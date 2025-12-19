@@ -1,47 +1,58 @@
-# ============================================================================
-# NTRLI' AI - Android APK Build (Using Buildozer Action)
-# ============================================================================
-# Uses ArtemSBulgakov/buildozer-action for reliable builds
+# NTRLI AI - Android APK Build
+# Based on working configuration from https://gist.github.com/zl475505/25245e8d28b13b3273e8bae1a63c4af2
 
 name: Build Android APK
 
 on:
   push:
     branches: [main, master, 'claude/*']
-    tags:
-      - 'v*'
   pull_request:
     branches: [main, master]
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Build type'
-        required: true
-        default: 'debug'
-        type: choice
-        options:
-          - debug
-          - release
 
 jobs:
-  # ============================================================================
-  # APK Build Job
-  # ============================================================================
   build:
     name: Build APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      - name: Cache Buildozer global directory
+        uses: actions/cache@v4
         with:
-          command: buildozer android ${{ github.event.inputs.build_type || 'debug' }}
-          workdir: android_app
-          buildozer_version: stable
+          path: ~/.buildozer
+          key: buildozer-global-${{ hashFiles('android_app/buildozer.spec') }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git zip unzip autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake \
+            libffi-dev libssl-dev automake
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.33
+
+      - name: Build APK
+        working-directory: android_app
+        run: |
+          yes | buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -50,18 +61,6 @@ jobs:
           path: android_app/bin/*.apk
           retention-days: 30
 
-      - name: Upload build log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: build-log
-          path: android_app/.buildozer/logs/
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # ============================================================================
-  # Release Job - ALWAYS RUNS
-  # ============================================================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -79,58 +78,27 @@ jobs:
           path: ./apk
         continue-on-error: true
 
-      - name: List files
-        run: |
-          echo "=== APK files ==="
-          find . -name "*.apk" -ls 2>/dev/null || echo "No APK found"
-          ls -la ./apk/ 2>/dev/null || echo "No apk directory"
-
       - name: Generate tag
         id: tag
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=v1.0.0-build.${{ github.run_number }}" >> $GITHUB_OUTPUT
-          fi
+        run: echo "tag=v1.0.0-build.${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: "NTRLI' AI ${{ steps.tag.outputs.tag }}"
+          name: "NTRLI AI ${{ steps.tag.outputs.tag }}"
           files: ./apk/*.apk
           fail_on_unmatched_files: false
           draft: false
           prerelease: true
           body: |
-            ## NTRLI' AI Release
+            ## NTRLI AI Android App
 
-            Build: ${{ github.event.inputs.build_type || 'debug' }}
-            Run: #${{ github.run_number }}
+            Build #${{ github.run_number }}
 
-            ### Installation
-            1. Download the APK
+            ### Install
+            1. Download APK
             2. Enable "Install from unknown sources"
-            3. Install and open the app
-            4. Configure API keys in Settings
+            3. Install and open
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ============================================================================
-  # Summary
-  # ============================================================================
-  summary:
-    name: Summary
-    runs-on: ubuntu-latest
-    needs: [build, release]
-    if: always()
-
-    steps:
-      - name: Summary
-        run: |
-          echo "# Build Results" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Release | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
