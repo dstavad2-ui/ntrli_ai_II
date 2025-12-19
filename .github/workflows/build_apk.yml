@@ -1,0 +1,148 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'android_app/**'
+      - 'ntrli_ai/**'
+      - '.github/workflows/build_apk.yml'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            ~/.gradle
+          key: buildozer-${{ runner.os }}-${{ hashFiles('android_app/buildozer.spec') }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-pip \
+            build-essential \
+            git \
+            ffmpeg \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
+            libportmidi-dev \
+            libswscale-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            zlib1g-dev \
+            libgstreamer1.0 \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            libmtdev-dev \
+            xclip \
+            xsel \
+            libtool \
+            pkg-config \
+            autoconf \
+            automake \
+            cmake \
+            libltdl-dev \
+            libffi-dev \
+            libssl-dev \
+            zip \
+            unzip \
+            openjdk-17-jdk
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.36 virtualenv
+
+      - name: Copy NTRLI AI core to Android app
+        run: |
+          cp -r ntrli_ai android_app/
+
+      - name: Build APK (Debug)
+        if: ${{ github.event.inputs.build_type != 'release' }}
+        working-directory: android_app
+        run: |
+          buildozer android debug
+        env:
+          ANDROID_SDK_ACCEPT_LICENSE: 'yes'
+
+      - name: Build APK (Release)
+        if: ${{ github.event.inputs.build_type == 'release' }}
+        working-directory: android_app
+        run: |
+          buildozer android release
+        env:
+          ANDROID_SDK_ACCEPT_LICENSE: 'yes'
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload Debug APK
+        if: ${{ github.event.inputs.build_type != 'release' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ntrli-ai-debug-apk
+          path: android_app/bin/*.apk
+          retention-days: 30
+
+      - name: Upload Release APK
+        if: ${{ github.event.inputs.build_type == 'release' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ntrli-ai-release-apk
+          path: android_app/bin/*.apk
+          retention-days: 90
+
+      - name: Create Release
+        if: ${{ github.event.inputs.build_type == 'release' && github.ref == 'refs/heads/main' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.run_number }}
+          name: NTRLI AI v${{ github.run_number }}
+          files: android_app/bin/*.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Build Status
+        run: |
+          if [ "${{ needs.build.result }}" == "success" ]; then
+            echo "✅ APK build successful!"
+          else
+            echo "❌ APK build failed!"
+            exit 1
+          fi

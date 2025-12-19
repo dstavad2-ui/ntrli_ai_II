@@ -1,0 +1,80 @@
+{
+  "providers": {
+    "openai": {
+      "enabled": true,
+      "model": "gpt-4o",
+      "priority": 2
+    },
+    "claude": {
+      "enabled": true,
+      "model": "claude-sonnet-4-20250514",
+      "priority": 1
+    },
+    "gemini": {
+      "enabled": true,
+      "model": "gemini-2.5-flash",
+      "priority": 3
+    },
+    "groq": {
+      "enabled": true,
+      "model": "llama-3.3-70b-versatile",
+      "priority": 0
+    },
+    "mistral": {
+      "enabled": true,
+      "model": "mistral-large-latest",
+      "priority": 4
+    },
+    "together": {
+      "enabled": true,
+      "model": "meta-llama/Llama-3.3-70B-Instruct",
+      "priority": 5
+    },
+    "deepseek": {
+      "enabled": true,
+      "model": "deepseek-chat",
+      "priority": 6
+    },
+    "replicate": {
+      "enabled": false,
+      "model": "meta/meta-llama-3.3-70b-instruct",
+      "priority": 7
+    },
+    "huggingface": {
+      "enabled": false,
+      "model": "meta-llama/Llama-3.3-70B-Instruct",
+      "priority": 8
+    },
+    "cohere": {
+      "enabled": false,
+      "model": "command-r-plus",
+      "priority": 9
+    }
+  },
+  "router": {
+    "strategy": "fallback",
+    "timeout_seconds": 30,
+    "max_retries": 2
+  },
+  "execution": {
+    "sandbox_timeout": 30,
+    "test_timeout": 60,
+    "max_steps": 20,
+    "enable_cache": true,
+    "cache_dir": "knowledge_cache"
+  },
+  "github": {
+    "enabled": true,
+    "auto_commit": false,
+    "branch_prefix": "ntrli-ai/",
+    "commit_author": "NTRLI AI",
+    "commit_email": "ntrli-ai@users.noreply.github.com"
+  },
+  "ui": {
+    "verbose": false,
+    "color_output": true,
+    "show_plan": true,
+    "show_progress": true,
+    "json_output": false
+  }
+}
