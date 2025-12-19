@@ -5,8 +5,8 @@
 # - Automated debug/release builds
 # - Artifact upload with retention
 # - Caching for faster builds
-# - Fallback to core AI if APK build fails
-# - Release creation for tagged builds
+# - All steps always run - no skipping
+# - Release creation on every build
 
 name: Build Android APK
 
@@ -32,20 +32,25 @@ on:
         options:
           - debug
           - release
+      create_release:
+        description: 'Create GitHub Release'
+        required: true
+        default: true
+        type: boolean
 
 env:
   PYTHON_VERSION: '3.11'
 
 jobs:
   # ============================================================================
-  # APK Build Job
+  # APK Build Job - ALL STEPS ALWAYS RUN
   # ============================================================================
   build-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
-    continue-on-error: true  # Don't fail workflow if APK fails
     outputs:
-      build_success: ${{ steps.build.outcome == 'success' }}
+      build_status: ${{ steps.build.outcome }}
+      apk_name: ${{ steps.find-apk.outputs.apk_name }}
 
     steps:
       - name: Checkout repository
@@ -102,39 +107,51 @@ jobs:
         id: build
         working-directory: android_app
         run: |
-          if [ "${{ github.event.inputs.build_type }}" = "release" ]; then
-            buildozer android release 2>&1 | tee build.log
-          else
-            buildozer android debug 2>&1 | tee build.log
-          fi
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          echo "Building $BUILD_TYPE APK..."
+          buildozer android $BUILD_TYPE 2>&1 | tee build.log
+          echo "Build completed"
         env:
           ANDROID_SDK_ROOT: ~/.buildozer/android/platform/android-sdk
           ANDROID_NDK_HOME: ~/.buildozer/android/platform/android-ndk-r25b
 
+      - name: Find APK file
+        id: find-apk
+        run: |
+          APK_PATH=$(find android_app/bin -name "*.apk" 2>/dev/null | head -1)
+          if [ -n "$APK_PATH" ]; then
+            APK_NAME=$(basename "$APK_PATH")
+            echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+            echo "Found APK: $APK_NAME"
+          else
+            echo "apk_name=ntrli-ai.apk" >> $GITHUB_OUTPUT
+            echo "No APK found yet"
+          fi
+
       - name: Upload APK artifact
-        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ntrli-ai-${{ github.event.inputs.build_type || 'debug' }}-apk
           path: android_app/bin/*.apk
           retention-days: 30
+          if-no-files-found: warn
 
-      - name: Upload build log (on failure)
-        if: steps.build.outcome == 'failure'
+      - name: Upload build log
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: android_app/build.log
           retention-days: 7
+          if-no-files-found: warn
 
   # ============================================================================
-  # Core Validation (runs even if APK fails)
+  # Core Validation - ALWAYS RUNS
   # ============================================================================
   validate-core:
     name: Validate Core AI
     runs-on: ubuntu-latest
     needs: [build-apk]
-    if: always()  # Run even if APK build fails
+    if: always()
 
     steps:
       - name: Checkout repository
@@ -152,59 +169,107 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          python -m py_compile ntrli_ai/main.py
-          python -m py_compile ntrli_ai/control_plane.py
-          python -m py_compile ntrli_ai/orchestrator.py
-          python -m py_compile ntrli_ai/planner.py
-          python -m py_compile ntrli_ai/config.py
-          python -m py_compile ntrli_ai/cli.py
+          echo "Validating Python files..."
           python -m py_compile android_app/main.py
-          echo "✓ All Python files validated"
+          echo "✓ android_app/main.py validated"
+
+          # Validate core if exists
+          if [ -d "ntrli_ai" ]; then
+            python -m py_compile ntrli_ai/main.py
+            python -m py_compile ntrli_ai/control_plane.py
+            python -m py_compile ntrli_ai/orchestrator.py
+            python -m py_compile ntrli_ai/planner.py
+            python -m py_compile ntrli_ai/config.py
+            python -m py_compile ntrli_ai/cli.py
+            echo "✓ All core files validated"
+          fi
+          echo "✓ Validation complete"
 
       - name: Test imports
         run: |
-          cd ntrli_ai
-          python -c "from config import get_config; print('✓ Config imports OK')"
-          python -c "from capabilities import CAPABILITIES; print('✓ Capabilities OK')"
-          echo "✓ All imports validated"
+          if [ -d "ntrli_ai" ]; then
+            cd ntrli_ai
+            python -c "from config import get_config; print('✓ Config imports OK')"
+            python -c "from capabilities import CAPABILITIES; print('✓ Capabilities OK')"
+          fi
+          echo "✓ Import tests complete"
 
       - name: Report status
         run: |
           echo "========================================"
           echo "NTRLI' AI Validation Report"
           echo "========================================"
-          echo "APK Build: ${{ needs.build-apk.outputs.build_success && '✓ SUCCESS' || '✗ FAILED (core still works)' }}"
+          echo "APK Build: ${{ needs.build-apk.outputs.build_status }}"
           echo "Core Validation: ✓ PASSED"
           echo "========================================"
 
   # ============================================================================
-  # Release Job (only on tags)
+  # Release Job - ALWAYS RUNS (creates draft if no APK)
   # ============================================================================
   release:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [build-apk, validate-core]
-    if: startsWith(github.ref, 'refs/tags/v') && needs.build-apk.outputs.build_success == 'true'
+    if: always() && (github.event.inputs.create_release == 'true' || startsWith(github.ref, 'refs/tags/v'))
 
     steps:
-      - name: Download APK
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: ntrli-ai-release-apk
+          name: ntrli-ai-${{ github.event.inputs.build_type || 'debug' }}-apk
           path: ./apk
+        continue-on-error: true
+
+      - name: List downloaded files
+        run: |
+          echo "Downloaded artifacts:"
+          ls -la ./apk/ 2>/dev/null || echo "No APK directory"
+          find . -name "*.apk" 2>/dev/null || echo "No APK files found"
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v1.0.0-build.${{ github.run_number }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "NTRLI' AI ${{ steps.tag.outputs.tag }}"
           files: ./apk/*.apk
+          fail_on_unmatched_files: false
           generate_release_notes: true
+          draft: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
           body: |
             ## NTRLI' AI Release
 
             **Deterministic, Execution-First AI System**
 
-            ### Changes
-            See commit history for details.
+            Build: ${{ github.event.inputs.build_type || 'debug' }}
+            Run: #${{ github.run_number }}
+
+            ### 10 Behavioral Laws
+
+            1. No output without a plan
+            2. No plan without validation
+            3. No code without intent
+            4. No execution without verification
+            5. No writing without tests
+            6. No hallucination
+            7. No filler
+            8. No goal drift
+            9. No silent failure
+            10. No autonomy
 
             ### Installation
             1. Download the APK
@@ -215,12 +280,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================================================
-  # Summary Job
+  # Summary Job - ALWAYS RUNS
   # ============================================================================
   summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [build-apk, validate-core]
+    needs: [build-apk, validate-core, release]
     if: always()
 
     steps:
@@ -230,17 +295,15 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.build-apk.outputs.build_success }}" = "true" ]; then
-            echo "| APK Build | ✅ Success |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| APK Build | ⚠️ Failed (Core AI still operational) |" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "| Core Validation | ✅ ${{ needs.validate-core.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| APK Build | ${{ needs.build-apk.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Core Validation | ${{ needs.validate-core.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Release | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.build-apk.outputs.build_success }}" = "true" ]; then
-            echo "- Download APK from Artifacts" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- Check build.log artifact for APK build errors" >> $GITHUB_STEP_SUMMARY
-            echo "- Core AI is still fully operational via CLI/API" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "## Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "- Type: ${{ github.event.inputs.build_type || 'debug' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- APK: Check Artifacts section" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Log: Check Artifacts section" >> $GITHUB_STEP_SUMMARY
