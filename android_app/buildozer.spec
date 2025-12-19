@@ -1,24 +1,22 @@
 [app]
-title = NTRLI AI
-package.name = ntrliai
-package.domain = com.ntrli
-source.dir = .
-source.include_exts = py,png,jpg,jpeg,ttf,json
-version = 1.0.0
 
-# Minimal requirements for reliable build
-requirements = python3,kivy,requests,certifi
+title = NTRLI
+package.name = ntrli
+package.domain = org.ntrli
+
+source.dir = .
+source.include_exts = py,png,jpg,kv
+
+version = 0.1
+
+requirements = python3,kivy
 
 orientation = portrait
 fullscreen = 0
 
-# Android settings
-android.permissions = INTERNET,ACCESS_NETWORK_STATE
 android.api = 33
-android.minapi = 24
-android.archs = arm64-v8a
-android.accept_sdk_license = True
+android.minapi = 21
+android.arch = arm64-v8a
 
-[buildozer]
-log_level = 2
 warn_on_root = 0
+log_level = 2
