@@ -1,84 +1,137 @@
-# NTRLI' AI Core
+# NTRLI' AI App
 
-**Deterministic, Execution-First Artificial Intelligence Engine**
-
-This is the **core engine** of NTRLI' AI - the execution system that enforces the 10 Behavioral Laws.
-
-## What This Is
-
-The core contains:
-- **Execution Engine** - Plan-first, validate-always execution
-- **Planning System** - JSON schema-validated planning
-- **Validation Gates** - Capability checks, code validation
-- **Autonomy Rules** - The 10 non-negotiable behavioral laws
-- **GitHub Runner** - Self-running AI execution workflow
-- **Multi-Provider Router** - 10+ LLM providers with intelligent routing
-
-## Behavioral Laws (Enforced in Code)
-
-1. No output without a plan
-2. No plan without validation
-3. No code without intent
-4. No execution without verification
-5. No writing to GitHub without tests
-6. No hallucination
-7. No filler
-8. No goal drift
-9. No silent failure
-10. No autonomy
-
-## Structure
+**Android Application for NTRLI' AI**
 
 ```
-ntrli_ai/
-├── main.py              # Entry point
-├── control_plane.py     # Single EXECUTE command gate
-├── orchestrator.py      # Execution core
-├── planner.py           # Plan-first enforcement
-├── step_executor.py     # Sequential step execution
-├── capabilities.py      # Self-knowledge registry
-├── failure_recovery.py  # Retry logic
-├── knowledge_cache.py   # Offline resilience
-├── config.py            # Configuration system
-├── cli.py               # CLI interface
-├── providers/           # LLM provider adapters
-├── tools/               # Execution tools
-├── github/              # GitHub integration
-└── notebook/            # Knowledge storage
+┌─────────────────────────────────────────────────────────┐
+│                    NTRLI' AI App                        │
+│                                                         │
+│       UI │ Android │ Product Logic │ User Experience    │
+│                                                         │
+│            Depends on Core as Submodule                 │
+└─────────────────────────────────────────────────────────┘
 ```
 
-## Usage
+## Repository Structure
+
+This is the **application layer** branch (`ntrli-app`).
+
+| Branch | Contents | Purpose |
+|--------|----------|---------|
+| `main` | NTRLI' AI Core | Engine: execution, planning, validation, autonomy rules |
+| `ntrli-app` | Application | UI, Android app, product logic |
+
+**Why separate?** App can't break core - they're isolated.
+
+## App Components
+
+```
+ntrli-app/
+├── android_app/
+│   ├── main.py           # Self-contained Kivy app
+│   ├── buildozer.spec    # APK build configuration
+│   └── README.md         # App documentation
+├── .github/workflows/
+│   └── build_apk.yml     # Automated APK builder
+├── settings.json.example # Configuration template
+└── core/                 # NTRLI' AI Core (submodule)
+```
+
+## Features
+
+- Clean, modern mobile UI
+- Provider selection (Groq, OpenAI, DeepSeek)
+- Real-time execution output with streaming
+- Offline mode with cached knowledge
+- Settings management
+- 10 Behavioral Laws embedded
+
+## Self-Contained Design
+
+The Android app embeds all core logic:
+
+```python
+# No external ntrli_ai imports - all embedded:
+# - LLM providers (OpenAI, Groq, DeepSeek)
+# - Planner with JSON schema validation
+# - Step executor
+# - KnowledgeCache for offline mode
+# - HTTPClient with retry logic
+```
+
+This follows NTRLI' AI principles:
+- **No guessing** - all dependencies validated at startup
+- **No silent failure** - comprehensive error handling
+- **Deterministic behavior** - consistent state management
+
+## Build APK
+
+### Automated (GitHub Actions)
+
+1. Go to **Actions** → **Build Android APK**
+2. Click **Run workflow**
+3. Select debug or release
+4. Download APK from artifacts
+
+### Manual Build
 
 ```bash
-# Install
-pip install -r requirements.txt
-
-# Configure
-export GROQ_API_KEY=gsk_...  # or any provider key
-
-# Run
-cd ntrli_ai
-python main.py "Your instruction here"
+pip install buildozer cython
+cd android_app
+buildozer android debug
+# APK in android_app/bin/
 ```
 
-## For Applications
+## Configuration
 
-Applications should use this core as a **git submodule**:
+Copy `settings.json.example` and configure:
+
+```json
+{
+  "api_keys": {
+    "groq": "gsk_...",
+    "openai": "sk-...",
+    "deepseek": "sk-..."
+  },
+  "router": {
+    "strategy": "fastest"
+  }
+}
+```
+
+## App Screens
+
+| Screen | Purpose |
+|--------|---------|
+| **Execute** | Enter instructions, run AI, view results |
+| **Settings** | API keys, provider config, cache |
+| **About** | 10 Behavioral Laws, version info |
+
+## Build Requirements
+
+**Minimal dependencies for fast, small APK:**
+
+```
+python3
+kivy==2.3.0
+requests
+certifi
+```
+
+**Target platforms:**
+- ARM64-v8a (modern devices)
+- ARMeabi-v7a (older devices)
+- Android API 24+ (Android 7.0+)
+
+## Core Submodule
+
+To add core functionality:
 
 ```bash
-git submodule add https://github.com/YOUR_ORG/ntrli_ai_II.git core
+git submodule add -b main ../ntrli_ai_II.git core
+git submodule update --init
 ```
 
-Then import from `core/ntrli_ai/`.
+---
 
-## Documentation
-
-See [WHITEPAPER.md](WHITEPAPER.md) for complete specification.
-
-## GitHub Actions
-
-The core includes a self-running AI workflow:
-- Manual trigger with instruction input
-- Scheduled daily maintenance
-- Issue-triggered execution (`ai-task` label)
-- Auto-retry on failure
+**Core repository:** See `main` branch for NTRLI' AI engine.
