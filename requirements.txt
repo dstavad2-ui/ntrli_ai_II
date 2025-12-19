@@ -1,0 +1,25 @@
+# ============================================================================
+# NTRLI' AI - Dependencies
+# ============================================================================
+
+# Core dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+jsonschema>=4.19.0
+pyyaml>=6.0
+
+# AI Provider SDKs
+openai>=1.50.0
+anthropic>=0.39.0
+google-generativeai>=0.8.0
+groq>=0.11.0
+replicate>=0.34.1
+mistralai>=1.2.0
+together>=1.0.0
+cohere>=5.0.0
+
+# Testing
+pytest>=7.4.0
+
+# Type checking (optional)
+# mypy>=1.7.0
