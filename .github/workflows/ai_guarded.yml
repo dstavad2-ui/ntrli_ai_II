@@ -294,11 +294,146 @@ jobs:
           fi
 
       # ========================================================================
-      # VALIDATION GATE 3: Post-Execution Validation (Laws 7-9)
+      # VALIDATION GATE 3: Legitimacy & Efficiency Authentication
+      # ========================================================================
+      - name: "AUTHENTICATE: Verify legitimacy and efficiency rating"
+        id: authenticate
+        if: steps.execute.outcome == 'success'
+        working-directory: ntrli_ai
+        run: |
+          cat > authenticate.py << 'AUTHCHECK'
+          import sys
+          import json
+          import re
+          from datetime import datetime
+
+          # Read execution result
+          with open("/tmp/execution_result.txt", "r") as f:
+              result = f.read()
+
+          original_instruction = "${{ steps.instruction.outputs.instruction }}"
+
+          print("🔍 LEGITIMACY AUTHENTICATION")
+          print("=" * 60)
+
+          # METRIC 1: Material Substance - Verify tangible outputs
+          print("\n1. Material Substance Check:")
+          material_indicators = {
+              "files": len(re.findall(r'\.(py|json|yaml|md|txt)', result)),
+              "data_structures": len(re.findall(r'\{.*?\}', result)),
+              "numeric_values": len(re.findall(r'\d+', result)),
+              "urls": len(re.findall(r'https?://', result)),
+              "code_blocks": len(re.findall(r'```', result))
+          }
+
+          material_score = sum(1 for v in material_indicators.values() if v > 0)
+          print(f"   Material indicators found: {material_indicators}")
+          print(f"   ✓ Material substance score: {material_score}/5")
+
+          # METRIC 2: Analytics - Factual vs Generative ratio
+          print("\n2. Analytics Verification:")
+          factual_markers = ["error", "success", "failed", "completed", "validated"]
+          generative_markers = ["might", "could", "possibly", "perhaps", "maybe"]
+
+          factual_count = sum(result.lower().count(m) for m in factual_markers)
+          generative_count = sum(result.lower().count(m) for m in generative_markers)
+
+          if generative_count > 0:
+              analytical_ratio = factual_count / (factual_count + generative_count)
+          else:
+              analytical_ratio = 1.0 if factual_count > 0 else 0.5
+
+          print(f"   Factual markers: {factual_count}")
+          print(f"   Generative markers: {generative_count}")
+          print(f"   ✓ Analytical purity: {analytical_ratio:.2%}")
+
+          # METRIC 3: Efficiency Rating - Output/Input ratio
+          print("\n3. Efficiency Rating:")
+          input_complexity = len(original_instruction.split())
+          output_substance = len(result.split())
+
+          if input_complexity > 0:
+              efficiency_ratio = output_substance / input_complexity
+              # Good efficiency: 10-50x input (too low = incomplete, too high = bloat)
+              if 10 <= efficiency_ratio <= 50:
+                  efficiency_grade = "A"
+              elif 5 <= efficiency_ratio < 10 or 50 < efficiency_ratio <= 100:
+                  efficiency_grade = "B"
+              else:
+                  efficiency_grade = "C"
+          else:
+              efficiency_ratio = 0
+              efficiency_grade = "F"
+
+          print(f"   Input complexity: {input_complexity} words")
+          print(f"   Output substance: {output_substance} words")
+          print(f"   ✓ Efficiency ratio: {efficiency_ratio:.1f}x (Grade: {efficiency_grade})")
+
+          # METRIC 4: Legitimacy Verification - Expected outcomes present
+          print("\n4. Legitimacy Verification:")
+          expected_outcomes = {
+              "error_handling": "error" in result.lower() or "success" in result.lower(),
+              "structured_data": "{" in result or "[" in result,
+              "definitive_state": any(x in result.lower() for x in ["completed", "failed", "validated", "confirmed"]),
+              "no_hallucination_markers": not any(x in result.lower() for x in ["i think", "i believe", "probably", "unsure"])
+          }
+
+          legitimacy_score = sum(1 for v in expected_outcomes.values() if v)
+          print(f"   Expected outcomes: {expected_outcomes}")
+          print(f"   ✓ Legitimacy score: {legitimacy_score}/4")
+
+          # FINAL AUTHENTICATION RESULT
+          print("\n" + "=" * 60)
+          print("AUTHENTICATION SUMMARY")
+          print("=" * 60)
+
+          overall_score = (material_score/5 * 25) + (analytical_ratio * 25) + (legitimacy_score/4 * 25)
+          if efficiency_grade == "A":
+              overall_score += 25
+          elif efficiency_grade == "B":
+              overall_score += 15
+          elif efficiency_grade == "C":
+              overall_score += 5
+
+          print(f"\nOverall Authentication Score: {overall_score:.1f}/100")
+
+          if overall_score >= 75:
+              status = "✅ AUTHENTICATED - High legitimacy & efficiency"
+              sys.exit(0)
+          elif overall_score >= 50:
+              status = "⚠️  CAUTION - Moderate legitimacy (review recommended)"
+              print(f"\n{status}")
+              sys.exit(0)  # Pass but warn
+          else:
+              status = "❌ AUTHENTICATION FAILED - Low legitimacy/efficiency"
+              print(f"\n{status}")
+              sys.exit(1)
+
+          print(f"{status}")
+
+          # Save metrics for reporting
+          metrics = {
+              "timestamp": datetime.utcnow().isoformat(),
+              "material_score": material_score,
+              "analytical_ratio": analytical_ratio,
+              "efficiency_grade": efficiency_grade,
+              "legitimacy_score": legitimacy_score,
+              "overall_score": overall_score,
+              "status": status
+          }
+
+          with open("/tmp/auth_metrics.json", "w") as f:
+              json.dump(metrics, f, indent=2)
+          AUTHCHECK
+
+          python authenticate.py || exit 1
+
+      # ========================================================================
+      # VALIDATION GATE 4: Post-Execution Validation (Laws 7-9)
       # ========================================================================
       - name: "LAW 7-9: Post-execution validation"
         id: post_execution
-        if: steps.execute.outcome == 'success'
+        if: steps.execute.outcome == 'success' && steps.authenticate.outcome == 'success'
         working-directory: ntrli_ai
         run: |
           cat > post_execution_check.py << 'POSTCHECK'
@@ -396,6 +531,22 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Strategy:** ${{ steps.instruction.outputs.strategy }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Add authentication metrics if available
+          if [ -f "/tmp/auth_metrics.json" ]; then
+            echo "## 📊 Authentication Metrics" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat /tmp/auth_metrics.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Extract overall score for display
+            SCORE=$(python3 -c "import json; print(json.load(open('/tmp/auth_metrics.json'))['overall_score'])" 2>/dev/null || echo "N/A")
+            echo "**Authentication Score:** ${SCORE}/100" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "## 10 Behavioral Laws - Validation Status" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Law | Description | Status |" >> $GITHUB_STEP_SUMMARY
@@ -448,6 +599,13 @@ jobs:
           echo "- ❌ No API keys configured (check repository secrets)" >> $GITHUB_STEP_SUMMARY
           echo "- ❌ All LLM providers are unavailable" >> $GITHUB_STEP_SUMMARY
           echo "- ❌ Instruction format invalid" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Authentication (Legitimacy & Efficiency)" >> $GITHUB_STEP_SUMMARY
+          echo "If authentication failed, check:" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ MATERIAL: Output lacks tangible substance (files, data, code)" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ ANALYTICS: High generative/speculative content vs factual" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ EFFICIENCY: Poor output/input ratio (too brief or bloated)" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ LEGITIMACY: Missing expected outcomes or hallucination markers" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Post-Execution (Laws 7-9)" >> $GITHUB_STEP_SUMMARY
           echo "If post-execution validation failed, check:" >> $GITHUB_STEP_SUMMARY
