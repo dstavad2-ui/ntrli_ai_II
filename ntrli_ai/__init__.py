@@ -19,6 +19,10 @@ ABSOLUTE BEHAVIORAL LAWS (Non-Negotiable):
 9. No silent failure
 10. No autonomy
 
+CORE SEGREGATION RULE:
+AI and commercial operations are strictly segregated.
+AI cannot make decisions in transactional/commercial flows.
+
 If any law is violated, execution halts.
 """
 
@@ -37,6 +41,13 @@ from .planner import Planner
 from .step_executor import StepExecutor
 from .failure_recovery import FailureRecovery
 
+from .segregation import (
+    SegregationEnforcer,
+    OperationType,
+    TelegramShopBoundary,
+    SegregationViolation,
+)
+
 __all__ = [
     "ControlPlane",
     "Orchestrator",
@@ -46,4 +57,8 @@ __all__ = [
     "assert_capability",
     "list_capabilities",
     "CAPABILITIES",
+    "SegregationEnforcer",
+    "OperationType",
+    "TelegramShopBoundary",
+    "SegregationViolation",
 ]

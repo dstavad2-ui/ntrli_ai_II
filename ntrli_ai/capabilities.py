@@ -6,6 +6,9 @@ This module defines the capabilities that NTRLI' AI knows it has.
 This is how the system maintains strict self-awareness of its limits.
 
 BEHAVIORAL LAW: No execution without verified capabilities.
+
+CORE RULE: AI and commercial operations are strictly segregated.
+See segregation.py for enforcement details.
 """
 
 from typing import Dict, Literal
